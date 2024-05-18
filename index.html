@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Stock Price Charts</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+</head>
+<body>
+<h2>Real-time and Historical Stock Prices</h2>
+<div>
+    <input type="text" id="dateRange" placeholder="Select Date Range">
+    <button onclick="loadHistoricalData()">Load Historical Data</button>
+    <button onclick="toggleRealTimeData()">Real-Time Data</button>
+</div>
+<div id="charts">
+    <canvas id="AAPLChart"></canvas>
+    <canvas id="GOOGLChart"></canvas>
+    <canvas id="MSFTChart"></canvas>
+    <canvas id="AMZNChart"></canvas>
+    <canvas id="FBChart"></canvas>
+</div>
+<script>
+var symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB'];
+var charts = {};
+var realTimeActive = true;
+
+// Create a chart for each symbol
+symbols.forEach(symbol => {
+    var ctx = document.getElementById(symbol + 'Chart').getContext('2d');
+    charts[symbol] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: symbol + ' Stock Price',
+                borderColor: 'rgb(75, 192, 192)',
+                data: []
+            }]
+        },
+        options: {
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'll HH:mm'
+                    }
+                },
+                y: {
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+});
+
+// Initialize flatpickr
+flatpickr("#dateRange", {  
+    mode: "range",
+    enableTime: true,
+    dateFormat: "Y-m-d H:i",
+});
+
+// WebSocket for real-time data
+var socket = new WebSocket('ws://localhost:8080/ws');
+socket.onopen = function(event) {
+    console.log("WebSocket is open now.");
+};
+
+socket.onerror = function(event) {
+    console.error("WebSocket error observed:", event);
+};
+
+socket.onmessage = function(event) {
+    console.log("WebSocket message received:", event.data);
+    var msg = JSON.parse(event.data);
+    if(realTimeActive && charts[msg.symbol]) {
+        var data = charts[msg.symbol].data;
+        data.labels.push(new Date(msg.timestamp * 1000));
+        data.datasets[0].data.push(msg.price);
+        charts[msg.symbol].update();
+    }
+};
+
+// Function to fetch historical data
+function loadHistoricalData() {
+    var range = document.getElementById('dateRange').value.split(" to ");
+    if(range.length < 2) {
+        alert("Please select a valid range!");
+        return;
+    }
+    realTimeActive = false;
+    var start = new Date(range[0]).getTime() / 1000;
+    var end = new Date(range[1]).getTime() / 1000;
+    symbols.forEach(symbol => {
+        fetch(`/data/${symbol}/${start}/${end}`)
+            .then(response => response.json())
+            .then(data => {
+                if (!data || data.length === 0) {
+                    alert("No data available for the selected range. Please choose another range.");
+                    return;
+                }
+                var chart = charts[symbol];
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                data.forEach(point => {
+                    chart.data.labels.push(new Date(point.timestamp * 1000));
+                    chart.data.datasets[0].data.push(point.price);
+                });
+                chart.update();
+            })
+            .catch(err => {
+                alert("Failed to retrieve data: " + err);
+            });
+    });
+}
+
+// Toggle real-time data streaming
+function toggleRealTimeData() {
+    realTimeActive = !realTimeActive;
+    console.log("Real-time data streaming toggled to:", realTimeActive);
+}
+
+</script>
+</body>
+</html>
